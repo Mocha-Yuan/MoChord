@@ -1,0 +1,25 @@
+node_modules/
+dist/
+
+# Local environment files
+.env*
+!.env.example
+
+# TypeScript / Vite generated files
+*.tsbuildinfo
+vite-dev.*.log
+vite.config.js
+vite.config.d.ts
+
+# Tauri / Rust generated files
+src-tauri/target/
+src-tauri/gen/
+
+# Local QA artifacts
+icon-qa/
+
+# Signing material and private keys
+*.p12
+*.pfx
+*.key
+*.pem
