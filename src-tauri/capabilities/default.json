@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default permissions for the ChordFlow desktop window.",
+  "description": "Default permissions for the MoChord desktop window.",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

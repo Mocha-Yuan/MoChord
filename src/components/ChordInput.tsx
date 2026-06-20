@@ -5,12 +5,13 @@ import { useI18n } from "../i18n";
 type ChordInputProps = {
   value: string;
   error: string | null;
+  recentChords?: string[];
   onGenerate: (name: string) => void;
 };
 
 const EXAMPLES = ["C", "Am", "G7", "Fmaj7", "Dm7", "Cadd9"];
 
-export function ChordInput({ value, error, onGenerate }: ChordInputProps) {
+export function ChordInput({ value, error, recentChords = [], onGenerate }: ChordInputProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(value);
 
@@ -56,6 +57,15 @@ export function ChordInput({ value, error, onGenerate }: ChordInputProps) {
           </button>
         ))}
       </div>
+      {recentChords.length > 0 ? (
+        <div className="example-row recent-row" aria-label={t("recentChords")}>
+          {recentChords.map((chord) => (
+            <button key={chord} type="button" onClick={() => handleExample(chord)}>
+              {chord}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {error ? <p className="error-message">{error}</p> : null}
     </section>
   );

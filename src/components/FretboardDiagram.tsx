@@ -1,13 +1,20 @@
 import { useI18n } from "../i18n";
 import type { GuitarVoicing } from "../types/music";
-import { getVoicingNotes, getVoicingShapeCode, STANDARD_TUNING } from "../utils/guitar";
+import {
+  getTuningNoteNames,
+  getVoicingBarres,
+  getVoicingNotes,
+  STANDARD_TUNING_PITCHES,
+  type VoicingBarre,
+} from "../utils/guitar";
 
 type FretboardDiagramProps = {
   chordName: string;
   voicing: GuitarVoicing;
+  tuningPitches?: string[];
 };
 
-export function FretboardDiagram({ chordName, voicing }: FretboardDiagramProps) {
+export function FretboardDiagram({ chordName, voicing, tuningPitches = STANDARD_TUNING_PITCHES }: FretboardDiagramProps) {
   const { t } = useI18n();
   const maxRelativeFret = Math.max(
     4,
@@ -21,7 +28,9 @@ export function FretboardDiagram({ chordName, voicing }: FretboardDiagramProps) 
   const top = 78;
   const fretGap = 42;
   const stringGap = (right - left) / 5;
-  const notes = getVoicingNotes(voicing);
+  const notes = getVoicingNotes(voicing, tuningPitches);
+  const tuningNotes = getTuningNoteNames(tuningPitches);
+  const barres = getVoicingBarres(voicing);
 
   return (
     <section className="panel diagram-panel">
@@ -30,7 +39,6 @@ export function FretboardDiagram({ chordName, voicing }: FretboardDiagramProps) 
           <p className="eyebrow">{t("selectedShape")}</p>
           <h2>{chordName}</h2>
         </div>
-        <span className="shape-code">{getVoicingShapeCode(voicing)}</span>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="fretboard-svg" role="img">
         <title>{`${chordName} ${t("guitarDiagramTitle")}`}</title>
@@ -71,6 +79,29 @@ export function FretboardDiagram({ chordName, voicing }: FretboardDiagramProps) 
             />
           );
         })}
+        {barres.map((barre) => {
+          const relativeFret = barre.fret - voicing.baseFret + 1;
+          if (relativeFret < 1 || relativeFret > visibleFrets) return null;
+
+          const fromX = left + barre.fromString * stringGap;
+          const toX = left + barre.toString * stringGap;
+          const y = top + (relativeFret - 0.5) * fretGap;
+          return (
+            <g key={`barre-${barre.fret}-${barre.finger}-${barre.fromString}-${barre.toString}`}>
+              <rect
+                x={Math.min(fromX, toX) - 15}
+                y={y - 15}
+                width={Math.abs(toX - fromX) + 30}
+                height={30}
+                rx={15}
+                className="chart-finger-barre"
+              />
+              <text x={(fromX + toX) / 2} y={y + 5} className="finger-text">
+                {barre.finger}
+              </text>
+            </g>
+          );
+        })}
         {voicing.frets.map((fret, stringIndex) => {
           const x = left + stringIndex * stringGap;
           if (fret < 0) {
@@ -91,6 +122,7 @@ export function FretboardDiagram({ chordName, voicing }: FretboardDiagramProps) 
           const relativeFret = fret - voicing.baseFret + 1;
           const clampedFret = Math.max(1, Math.min(visibleFrets, relativeFret));
           const y = top + (clampedFret - 0.5) * fretGap;
+          if (isBarredPosition(barres, fret, stringIndex, voicing.fingers?.[stringIndex] ?? 0)) return null;
           return (
             <g key={`finger-${stringIndex}`}>
               <circle cx={x} cy={y} r={15} className="chart-finger-dot" />
@@ -102,7 +134,7 @@ export function FretboardDiagram({ chordName, voicing }: FretboardDiagramProps) 
             </g>
           );
         })}
-        {STANDARD_TUNING.map((stringName, index) => {
+        {tuningNotes.map((stringName, index) => {
           const x = left + index * stringGap;
           return (
             <g key={`note-${index}`}>
@@ -117,5 +149,15 @@ export function FretboardDiagram({ chordName, voicing }: FretboardDiagramProps) 
         })}
       </svg>
     </section>
+  );
+}
+
+function isBarredPosition(barres: VoicingBarre[], fret: number, stringIndex: number, finger: number): boolean {
+  return barres.some(
+    (barre) =>
+      barre.fret === fret &&
+      barre.finger === finger &&
+      stringIndex >= barre.fromString &&
+      stringIndex <= barre.toString,
   );
 }

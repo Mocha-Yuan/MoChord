@@ -12,4 +12,4 @@ Please report security issues privately through GitHub Security Advisories if av
 
 Do not commit real API keys, tokens, certificates, signing keys, or local `.env` files.
 
-ChordFlow may use a DeepSeek API key in the desktop app. Keep that key local to your machine and rotate it immediately if it is accidentally published.
+MoChord may use a DeepSeek API key in the desktop app. Keep that key local to your machine and rotate it immediately if it is accidentally published.

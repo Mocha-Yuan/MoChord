@@ -1,5 +1,7 @@
 import type { AIChordProgressionResult, AIProgressionChord, SupportedMode } from "../types/progression";
 import { normalizeNoteName, transposeNote } from "./musicTheory";
+import type { Language } from "../i18n";
+import { createDefaultPracticeCoachPlan, localizePracticeCoachPlan } from "./practiceCoach";
 
 const MODE_INTERVALS: Record<SupportedMode, number[]> = {
   Major: [0, 2, 4, 5, 7, 9, 11],
@@ -37,6 +39,23 @@ const FUNCTION_BY_DEGREE = [
   "Dominant",
   "Relative color",
   "Leading-tone color",
+];
+
+const ZH_MODE_LABELS: Record<SupportedMode, string> = {
+  Major: "大调",
+  "Natural Minor": "自然小调",
+  Dorian: "多利亚调式",
+  Mixolydian: "混合利底亚调式",
+};
+
+const ZH_FUNCTION_BY_DEGREE = [
+  "主功能",
+  "上主音色彩",
+  "中音色彩",
+  "下属功能",
+  "属功能",
+  "关系小调色彩",
+  "导音色彩",
 ];
 
 export function generateDiatonicTriads(
@@ -101,6 +120,7 @@ export function createLocalChordProgressionResult(
     normalizedInput: `${normalizeNoteName(key)} ${mode} ${degrees.join("-")}`,
     key: normalizeNoteName(key),
     mode,
+    modeLabel: mode,
     degrees,
     romanNumerals: degrees.map((degree) => romanFor(mode, degree)),
     beginner: {
@@ -113,8 +133,53 @@ export function createLocalChordProgressionResult(
       description: "A more colorful version with seventh and suspended sonorities.",
       chords: professionalChords,
     },
+    coach: createDefaultPracticeCoachPlan({
+      input,
+      key: normalizeNoteName(key),
+      level: "beginner",
+      language: "en",
+    }),
     notes: [`Generated locally from "${input}".`],
     warnings: warning ? [warning] : [],
+  };
+}
+
+export function localizeProgressionResult(
+  result: AIChordProgressionResult,
+  language: Language,
+): AIChordProgressionResult {
+  if (language !== "zh") {
+    return {
+      ...result,
+      modeLabel: result.mode,
+    };
+  }
+
+  return {
+    ...result,
+    modeLabel: ZH_MODE_LABELS[result.mode],
+    normalizedInput: `${result.key} ${ZH_MODE_LABELS[result.mode]} ${result.degrees.join("-")}`,
+    beginner: {
+      ...result.beginner,
+      label: "入门版",
+      description: "适合入门吉他练习的顺阶三和弦。",
+      chords: localizeChords(result.beginner.chords, result),
+    },
+    professional: {
+      ...result.professional,
+      label: "专业版",
+      description: "加入七和弦、挂留与延伸音的进阶版本。",
+      chords: localizeChords(result.professional.chords, result),
+    },
+    coach: result.coach
+      ? localizePracticeCoachPlan(result.coach, {
+          input: result.normalizedInput,
+          key: result.key,
+          level: "beginner",
+          language: "zh",
+        })
+      : undefined,
+    notes: localizeNotes(result.notes, result),
   };
 }
 
@@ -143,3 +208,52 @@ function professionalRoman(mode: SupportedMode, degree: number, suffix: string):
 function formatChordName(root: string, suffix: string): string {
   return `${root}${suffix}`;
 }
+
+function localizeChords(chords: AIProgressionChord[], result: AIChordProgressionResult): AIProgressionChord[] {
+  return chords.map((chord, index) => ({
+    ...chord,
+    function: localizeFunction(chord),
+    explanation: localizeExplanation(chord, index, result),
+  }));
+}
+
+function localizeFunction(chord: AIProgressionChord): string {
+  return ZH_FUNCTION_BY_DEGREE[chord.degree - 1] ?? chord.function;
+}
+
+function localizeExplanation(chord: AIProgressionChord, index: number, result: AIChordProgressionResult): string {
+  const previousDegree = result.degrees[index - 1];
+  const roman = chord.roman || romanFor(result.mode, chord.degree);
+  if (previousDegree === chord.degree) {
+    return `重复 ${romanFor(result.mode, chord.degree)} 级，并加入更丰富的色彩。`;
+  }
+
+  if (chord.chord.includes("7") || chord.chord.includes("add") || chord.chord.includes("sus") || chord.chord.includes("9")) {
+    return `在 ${romanFor(result.mode, chord.degree)} 级上加入 ${describeChordColor(chord.chord)}，让和声更有层次。`;
+  }
+
+  return `${result.key} ${ZH_MODE_LABELS[result.mode]}中的 ${roman} 级和弦。`;
+}
+
+function describeChordColor(chordName: string): string {
+  if (chordName.includes("sus")) return "挂留色彩";
+  if (chordName.includes("add11")) return "十一度延伸音";
+  if (chordName.includes("add9") || chordName.includes("9")) return "九度色彩";
+  if (chordName.includes("maj7")) return "大七色彩";
+  if (chordName.includes("7")) return "七和弦色彩";
+  return "色彩音";
+}
+
+function localizeNotes(notes: string[], result: AIChordProgressionResult): string[] {
+  const generatedLocally = notes.find((note) => note.startsWith("Generated locally from "));
+  const localized = generatedLocally ? [`已根据“${extractQuotedInput(generatedLocally)}”在本地生成。`] : [];
+  const remaining = notes.filter((note) => note !== generatedLocally);
+  return [...localized, ...remaining];
+}
+
+function extractQuotedInput(note: string): string {
+  const match = note.match(/"(.+)"/);
+  return match?.[1] ?? `${resultFallbackInput}`;
+}
+
+const resultFallbackInput = "输入内容";

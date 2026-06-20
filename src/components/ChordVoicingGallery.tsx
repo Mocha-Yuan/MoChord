@@ -1,6 +1,6 @@
 import { useI18n } from "../i18n";
 import type { GuitarVoicing } from "../types/music";
-import { getVoicingKey, getVoicingShapeCode } from "../utils/guitar";
+import { getVoicingBarres, getVoicingKey, type VoicingBarre } from "../utils/guitar";
 
 type ChordVoicingGalleryProps = {
   chordName: string;
@@ -40,7 +40,6 @@ export function ChordVoicingGallery({
               aria-pressed={active}
             >
               <MiniChordChart chordName={index === 0 ? chordName : ""} voicing={voicing} />
-              <span>{getVoicingShapeCode(voicing)}</span>
             </button>
           );
         })}
@@ -58,6 +57,7 @@ function MiniChordChart({ chordName, voicing }: { chordName: string; voicing: Gu
   const fretGap = 20;
   const stringGap = (right - left) / 5;
   const visibleFrets = 4;
+  const barres = getVoicingBarres(voicing);
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="mini-chord-svg" aria-hidden="true">
@@ -93,6 +93,29 @@ function MiniChordChart({ chordName, voicing }: { chordName: string; voicing: Gu
           />
         );
       })}
+      {barres.map((barre) => {
+        const relativeFret = barre.fret - voicing.baseFret + 1;
+        if (relativeFret < 1 || relativeFret > visibleFrets) return null;
+
+        const fromX = left + barre.fromString * stringGap;
+        const toX = left + barre.toString * stringGap;
+        const y = top + (relativeFret - 0.5) * fretGap;
+        return (
+          <g key={`mini-barre-${barre.fret}-${barre.finger}-${barre.fromString}-${barre.toString}`}>
+            <rect
+              x={Math.min(fromX, toX) - 7.4}
+              y={y - 7.4}
+              width={Math.abs(toX - fromX) + 14.8}
+              height={14.8}
+              rx={7.4}
+              className="mini-barre"
+            />
+            <text x={(fromX + toX) / 2} y={y + 3.1} className="mini-finger-text">
+              {barre.finger}
+            </text>
+          </g>
+        );
+      })}
       {voicing.frets.map((fret, stringIndex) => {
         const x = left + stringIndex * stringGap;
         if (fret < 0) {
@@ -114,6 +137,7 @@ function MiniChordChart({ chordName, voicing }: { chordName: string; voicing: Gu
         if (relativeFret < 1 || relativeFret > visibleFrets) return null;
 
         const y = top + (relativeFret - 0.5) * fretGap;
+        if (isBarredPosition(barres, fret, stringIndex, voicing.fingers?.[stringIndex] ?? 0)) return null;
         return (
           <g key={`mini-finger-${stringIndex}`}>
             <circle cx={x} cy={y} r="7.4" className="mini-finger" />
@@ -126,5 +150,15 @@ function MiniChordChart({ chordName, voicing }: { chordName: string; voicing: Gu
         );
       })}
     </svg>
+  );
+}
+
+function isBarredPosition(barres: VoicingBarre[], fret: number, stringIndex: number, finger: number): boolean {
+  return barres.some(
+    (barre) =>
+      barre.fret === fret &&
+      barre.finger === finger &&
+      stringIndex >= barre.fromString &&
+      stringIndex <= barre.toString,
   );
 }

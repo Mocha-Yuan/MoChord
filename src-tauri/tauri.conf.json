@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "ChordFlow",
-  "version": "0.1.0",
-  "identifier": "com.chordflow.app",
+  "productName": "MoChord",
+  "version": "0.2.4",
+  "identifier": "com.chordflow.client",
   "build": {
     "beforeDevCommand": "npm.cmd run dev",
     "beforeBuildCommand": "npm.cmd run build",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "ChordFlow",
+        "title": "MoChord",
         "width": 1200,
         "height": 800,
         "minWidth": 960,

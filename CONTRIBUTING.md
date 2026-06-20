@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in improving ChordFlow.
+Thanks for your interest in improving MoChord.
 
 ## Development Setup
 

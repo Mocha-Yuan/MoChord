@@ -1,0 +1,5 @@
+target
+gen/schemas/
+gen/android/.gradle/
+gen/android/**/build/
+gen/android/local.properties

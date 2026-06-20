@@ -7,6 +7,7 @@ import {
   normalizeTimeSignature,
   playMetronomeClick,
 } from "./metronomeEngine";
+import { generateGuitarVoicing, voicingToPlayableNotes } from "./guitar";
 import { parseChordName, toPlayableChordNotes } from "./musicTheory";
 
 let playbackToken = 0;
@@ -34,6 +35,7 @@ export async function playChordProgression(
     metronomeDuringPlayback?: boolean;
     accentFirstBeat?: boolean;
     level?: ProgressionLevel;
+    tuningPitches?: string[];
     onChordChange?: (data: ProgressionPlaybackChord | null) => void;
     onBeat?: (data: ProgressionPlaybackBeat) => void;
     onComplete?: () => void;
@@ -72,7 +74,10 @@ export async function playChordProgression(
 
       const chordName = chordNames[index];
       options.onChordChange?.({ chordName, index, beat: 1, bar });
-      await playChordByName(chordName, { durationSeconds: chordDurationSeconds * 0.92 });
+      await playChordByName(chordName, {
+        durationSeconds: chordDurationSeconds * 0.92,
+        tuningPitches: options.tuningPitches,
+      });
 
       const chordTicks = barsPerChord * timeSignature.numerator;
       for (let tick = 0; tick < chordTicks; tick += 1) {
@@ -122,10 +127,13 @@ export async function playChordByName(
     bpm?: number;
     timeSignature?: TimeSignature;
     bars?: number;
+    tuningPitches?: string[];
   } = {},
 ): Promise<void> {
   const parsed = parseChordName(chordName);
-  const notes = toPlayableChordNotes(parsed.notes, parsed.root);
+  const voicing = generateGuitarVoicing(parsed, options.tuningPitches);
+  const voicingNotes = voicingToPlayableNotes(voicing, options.tuningPitches);
+  const notes = voicingNotes.length > 0 ? voicingNotes : toPlayableChordNotes(parsed.notes, parsed.root);
 
   if (parsed.bassNote && !notes.some((note) => note.startsWith(parsed.bassNote ?? ""))) {
     notes.unshift(`${parsed.bassNote}3`);

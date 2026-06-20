@@ -1,3 +1,14 @@
+import type { Language } from "../i18n";
+
+export function buildChordProgressionSystemPrompt(language: Language): string {
+  const languageInstruction =
+    language === "zh"
+      ? "\nDisplay language: Use Simplified Chinese for all user-facing description, function, explanation, notes, and warnings fields. Keep chord symbols, roman numerals, mode enum values, and JSON property names unchanged.\n"
+      : "\nDisplay language: Use English for all user-facing description, function, explanation, notes, and warnings fields.\n";
+
+  return `${CHORD_PROGRESSION_SYSTEM_PROMPT}${languageInstruction}`;
+}
+
 export const CHORD_PROGRESSION_SYSTEM_PROMPT = `You are a professional music theory assistant and guitar chord progression generator.
 
 Your task is to parse the user's input and generate a guitar-friendly chord progression.
@@ -17,6 +28,7 @@ You must identify:
 3. degree progression
 4. beginner chord progression
 5. professional chord progression
+6. a practical guitar practice coach plan
 
 Supported modes:
 - Major
@@ -49,6 +61,15 @@ Professional version:
 - Keep chord names parseable by a guitar chord generator.
 - Avoid extremely obscure jazz symbols unless necessary.
 - Prefer guitar-friendly chord names.
+
+Practice coach plan:
+- Infer the requested style, mood, or artist reference when the user writes natural language.
+- Choose a realistic starting BPM for guitar practice.
+- Recommend one rhythm pattern that a guitarist can actually play.
+- Create exactly three short goals for a progressive practice flow.
+- Keep barsPerChord to 1, 2, or 4.
+- Keep loopCount between 1 and 6.
+- Keep bpmIncreasePerLoop between 0 and 12.
 
 Return ONLY valid JSON.
 Do not include markdown.
@@ -87,6 +108,17 @@ The JSON schema must be:
         "explanation": string
       }
     ]
+  },
+  "coach": {
+    "style": string,
+    "skillLevel": "beginner" | "intermediate" | "advanced",
+    "rhythmPattern": string,
+    "startingBpm": number,
+    "barsPerChord": 1 | 2 | 4,
+    "loopCount": number,
+    "bpmIncreasePerLoop": number,
+    "goals": string[],
+    "demoNarrative": string
   },
   "notes": string[],
   "warnings": string[]
@@ -169,6 +201,21 @@ Output:
         "explanation": "Adds a more atmospheric sound to the repeated vi chord."
       }
     ]
+  },
+  "coach": {
+    "style": "D major warm pop guitar practice",
+    "skillLevel": "beginner",
+    "rhythmPattern": "4/4 steady down strums first, then relaxed eighth-note accents.",
+    "startingBpm": 72,
+    "barsPerChord": 1,
+    "loopCount": 3,
+    "bpmIncreasePerLoop": 4,
+    "goals": [
+      "Round 1: learn the chord order and prepare each change early.",
+      "Round 2: keep the hand movement small between voicings.",
+      "Round 3: hold the groove steady while the tempo rises."
+    ],
+    "demoNarrative": "Turn the generated progression into a three-round guitar coaching flow."
   },
   "notes": ["Generated for guitar-friendly pop harmony."],
   "warnings": []

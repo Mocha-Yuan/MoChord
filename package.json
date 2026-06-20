@@ -1,6 +1,6 @@
 {
-  "name": "chordflow",
-  "version": "0.1.0",
+  "name": "mochord",
+  "version": "0.2.4",
   "description": "A guitar chord workspace with diagrams, notation, playback, and AI-assisted progression generation.",
   "private": true,
   "license": "MIT",
@@ -15,25 +15,55 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test:music-theory": "node scripts/test-music-theory.mjs",
+    "test:progression-localization": "node scripts/test-progression-localization.mjs",
+    "test:metronome-engine": "node scripts/test-metronome-engine.mjs",
+    "test:practice-mode": "node scripts/test-practice-mode.mjs",
+    "test:practice-display-localization": "node scripts/test-practice-display-localization.mjs",
+    "test:practice-coach": "node scripts/test-practice-coach.mjs",
+    "test:practice-stats": "node scripts/test-practice-stats.mjs",
+    "test:practice-voicing-path": "node scripts/test-practice-voicing-path.mjs",
+    "test:tuner-engine": "node scripts/test-tuner-engine.mjs",
+    "test:workspace-state": "node scripts/test-workspace-state.mjs",
+    "test:progress-sync": "node scripts/test-progress-sync.mjs",
+    "test:profile-service": "node scripts/test-profile-service.mjs",
+    "test:profile-display": "node scripts/test-profile-display.mjs",
+    "test:runtime": "node scripts/test-runtime.mjs",
+    "test:library": "node scripts/test-library.mjs",
+    "test:guitar-tuning": "node scripts/test-guitar-tuning.mjs",
+    "test:shape-code-visibility": "node scripts/test-shape-code-visibility.mjs",
+    "test:text-quality": "node scripts/test-text-quality.mjs",
+    "test:style-templates": "node scripts/test-style-templates.mjs",
+    "test:harmonic-function": "node scripts/test-harmonic-function.mjs",
+    "test:library-dashboard-ui": "node scripts/test-library-dashboard-ui.mjs",
+    "test:ai-generator-language": "node scripts/test-ai-generator-language.mjs",
+    "test:song-draft": "node scripts/test-song-draft.mjs",
+    "test:song-arrangement": "node scripts/test-song-arrangement.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "android:init": "tauri android init --ci",
+    "android:dev": "tauri android dev",
+    "android:run": "tauri android run",
+    "android:build": "tauri android build"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
     "@tauri-apps/api": "^2.11.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tone": "^15.1.22",
     "typescript": "^5.8.0",
-    "vite": "^7.0.0"
+    "vite": "^8.0.16"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.1"
   }
 }

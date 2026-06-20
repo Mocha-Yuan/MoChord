@@ -1,5 +1,11 @@
 node_modules/
 dist/
+build/
+out/
+coverage/
+.vite/
+.cache/
+.idea/
 
 # Local environment files
 .env*
@@ -7,19 +13,54 @@ dist/
 
 # TypeScript / Vite generated files
 *.tsbuildinfo
-vite-dev.*.log
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 vite.config.js
 vite.config.d.ts
 
 # Tauri / Rust generated files
+target/
 src-tauri/target/
-src-tauri/gen/
+src-tauri/gen/schemas/
+src-tauri/gen/android/.gradle/
+src-tauri/gen/android/**/build/
+src-tauri/gen/android/local.properties
+src-tauri/gen/android/app/src/main/jniLibs/
+*.so
+*.dll
+*.dylib
 
 # Local QA artifacts
+.worktrees
+.worktrees/
+.chrome-*/
+android-*.png
+home-*.png
+learning-data-*.png
 icon-qa/
+
+# Operating system
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Release artifacts
+*.apk
+*.aab
 
 # Signing material and private keys
 *.p12
 *.pfx
 *.key
 *.pem
+*.jks
+*.keystore
+*signing*.properties

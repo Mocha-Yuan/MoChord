@@ -1,8 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { Language } from "../i18n";
 import type { AIChordProgressionResult, AIProgressionVersion, SupportedMode } from "../types/progression";
 import { createLocalChordProgressionResult } from "../utils/diatonicChords";
+import { coercePracticeCoachPlan, createDefaultPracticeCoachPlan } from "../utils/practiceCoach";
 import { parseProgressionInputLocally } from "../utils/progressionParser";
-import { CHORD_PROGRESSION_SYSTEM_PROMPT } from "./deepseekPrompt";
+import { getRuntimeLabel, hasTauriRuntime } from "../utils/runtime";
+import { buildChordProgressionSystemPrompt } from "./deepseekPrompt";
 
 const SUPPORTED_MODES: SupportedMode[] = ["Major", "Natural Minor", "Dorian", "Mixolydian"];
 
@@ -23,15 +26,15 @@ export class DeepSeekProgressionError extends Error {
 }
 
 export function hasDeepSeekApiKey(): boolean {
-  return Boolean(window.__TAURI_INTERNALS__);
+  return hasTauriRuntime();
 }
 
 export function hasDeepSeekRuntime(): boolean {
-  return Boolean(window.__TAURI_INTERNALS__);
+  return hasTauriRuntime();
 }
 
 export async function getDeepSeekApiKeyStatus(): Promise<DeepSeekApiKeyStatus> {
-  if (!window.__TAURI_INTERNALS__) {
+  if (!hasTauriRuntime()) {
     return { configured: false, source: "none" };
   }
 
@@ -50,11 +53,11 @@ export async function testDeepSeekApiKey(apiKey?: string): Promise<DeepSeekApiKe
   return invoke<DeepSeekApiKeyStatus>("test_deepseek_api_key", { apiKey: apiKey || null });
 }
 
-export async function generateChordProgressionWithDeepSeek(input: string): Promise<AIChordProgressionResult> {
-  if (!window.__TAURI_INTERNALS__) {
+export async function generateChordProgressionWithDeepSeek(input: string, language: Language = "en"): Promise<AIChordProgressionResult> {
+  if (!hasTauriRuntime()) {
     throw new DeepSeekProgressionError(
       "missing-api-key",
-      "DeepSeek generation is only available in the Tauri desktop app.",
+      `DeepSeek generation is only available in the ${getRuntimeLabel("tauri")}.`,
     );
   }
 
@@ -62,7 +65,7 @@ export async function generateChordProgressionWithDeepSeek(input: string): Promi
   try {
     content = await invoke<string>("generate_deepseek_progression", {
       input,
-      systemPrompt: CHORD_PROGRESSION_SYSTEM_PROMPT,
+      systemPrompt: buildChordProgressionSystemPrompt(language),
     });
   } catch (caught) {
     const message = typeof caught === "string" ? caught : "DeepSeek request failed. You can use local fallback instead.";
@@ -104,15 +107,22 @@ function coerceProgressionResult(value: unknown): AIChordProgressionResult {
 
   const beginner = coerceVersion(value.beginner, "Beginner");
   const professional = coerceVersion(value.professional, "Professional");
+  const normalizedInput = typeof value.normalizedInput === "string" ? value.normalizedInput : `${value.key} ${mode} ${degrees.join("-")}`;
+  const fallbackCoach = createDefaultPracticeCoachPlan({
+    input: normalizedInput,
+    key: value.key,
+    level: "beginner",
+  });
 
   return {
-    normalizedInput: typeof value.normalizedInput === "string" ? value.normalizedInput : `${value.key} ${mode} ${degrees.join("-")}`,
+    normalizedInput,
     key: value.key,
     mode,
     degrees,
     romanNumerals: Array.isArray(value.romanNumerals) ? value.romanNumerals.filter(isString) : [],
     beginner,
     professional,
+    coach: coercePracticeCoachPlan(value.coach, fallbackCoach),
     notes: Array.isArray(value.notes) ? value.notes.filter(isString) : [],
     warnings: Array.isArray(value.warnings) ? value.warnings.filter(isString) : [],
   };

@@ -237,5 +237,5 @@ pub fn run() {
             test_deepseek_api_key
         ])
         .run(tauri::generate_context!())
-        .expect("error while running ChordFlow");
+        .expect("error while running MoChord");
 }

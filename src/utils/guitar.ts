@@ -1,10 +1,18 @@
 import { BUILT_IN_CHORD_SHAPES } from "../data/chordShapes";
 import type { GuitarVoicing, ParsedChord } from "../types/music";
 import { getDisplayChordName, getNoteIndex, normalizeNoteName, transposeNote } from "./musicTheory";
+import { getMigratedStorageItem } from "./storageMigration";
 
 export const STANDARD_TUNING = ["E", "A", "D", "G", "B", "E"];
 export const STANDARD_TUNING_PITCHES = ["E2", "A2", "D3", "G3", "B3", "E4"];
 const COMPACT_DIAGRAM_FRETS = 4;
+
+export type VoicingBarre = {
+  fret: number;
+  finger: number;
+  fromString: number;
+  toString: number;
+};
 
 export function voicingFromFrets(frets: number[], baseFret = 1, fingers?: number[]): GuitarVoicing {
   return {
@@ -15,46 +23,157 @@ export function voicingFromFrets(frets: number[], baseFret = 1, fingers?: number
   };
 }
 
-export function getNoteAtFret(stringIndex: number, fret: number): string {
-  return transposeNote(STANDARD_TUNING[stringIndex], fret);
+export function normalizeVoicingFingering(voicing: GuitarVoicing): GuitarVoicing {
+  const fretted = voicing.frets
+    .map((fret, stringIndex) => ({ fret, stringIndex }))
+    .filter((item) => item.fret > 0);
+
+  if (fretted.length === 0) {
+    return { ...voicing, fingers: voicing.frets.map(() => 0) };
+  }
+
+  const minFret = Math.min(...fretted.map((item) => item.fret));
+  const likelyBarreFret = findLikelyBarreFret(voicing.frets);
+  const barreFret = likelyBarreFret === minFret ? likelyBarreFret : null;
+  const fingers = voicing.frets.map(() => 0);
+
+  if (barreFret !== null) {
+    voicing.frets.forEach((fret, stringIndex) => {
+      if (fret === barreFret) fingers[stringIndex] = 1;
+    });
+  }
+
+  let nextFinger = barreFret === null ? 1 : 2;
+  fretted
+    .filter((item) => item.fret !== barreFret)
+    .sort((a, b) => a.fret - b.fret || a.stringIndex - b.stringIndex)
+    .forEach(({ stringIndex }) => {
+      fingers[stringIndex] = Math.min(4, nextFinger);
+      nextFinger += 1;
+    });
+
+  return {
+    ...voicing,
+    fingers,
+  };
 }
 
-export function getVoicingNotes(voicing: GuitarVoicing): string[] {
-  return voicing.frets.map((fret, index) => (fret < 0 ? "x" : getNoteAtFret(index, fret)));
+export function getVoicingBarres(voicing: GuitarVoicing): VoicingBarre[] {
+  const frettedByFinger = new Map<number, Array<{ fret: number; stringIndex: number }>>();
+  voicing.frets.forEach((fret, stringIndex) => {
+    const finger = voicing.fingers?.[stringIndex] ?? 0;
+    if (fret <= 0 || finger <= 0) return;
+    const current = frettedByFinger.get(finger) ?? [];
+    current.push({ fret, stringIndex });
+    frettedByFinger.set(finger, current);
+  });
+
+  return Array.from(frettedByFinger.entries()).flatMap(([finger, items]) => {
+    const byFret = new Map<number, number[]>();
+    items.forEach(({ fret, stringIndex }) => {
+      const current = byFret.get(fret) ?? [];
+      current.push(stringIndex);
+      byFret.set(fret, current);
+    });
+
+    return Array.from(byFret.entries())
+      .filter(([, stringIndexes]) => stringIndexes.length >= 2 && hasAdjacentStrings(stringIndexes))
+      .map(([fret, stringIndexes]) => ({
+        fret,
+        finger,
+        fromString: Math.min(...stringIndexes),
+        toString: Math.max(...stringIndexes),
+      }));
+  });
 }
 
-export function voicingToPlayableNotes(voicing: GuitarVoicing): string[] {
+export function isErgonomicVoicing(voicing: GuitarVoicing): boolean {
+  const fretted = voicing.frets
+    .map((fret, stringIndex) => ({ fret, stringIndex }))
+    .filter((item) => item.fret > 0);
+
+  if (fretted.length === 0) return true;
+
+  const positiveFrets = fretted.map((item) => item.fret);
+  const minFret = Math.min(...positiveFrets);
+  const maxFret = Math.max(...positiveFrets);
+  if (maxFret - minFret > 4) return false;
+
+  const barreFret = findLikelyBarreFret(voicing.frets);
+  const usableBarreFret = barreFret === minFret ? barreFret : null;
+  const barreFingerCount = usableBarreFret === null ? 0 : 1;
+  const nonBarreFingerCount = fretted.filter((item) => item.fret !== usableBarreFret).length;
+
+  if (barreFingerCount + nonBarreFingerCount > 4) return false;
+
+  const nonBarreGroups = new Map<number, number[]>();
+  fretted
+    .filter((item) => item.fret !== usableBarreFret)
+    .forEach((item) => {
+      const current = nonBarreGroups.get(item.fret) ?? [];
+      current.push(item.stringIndex);
+      nonBarreGroups.set(item.fret, current);
+    });
+
+  return Array.from(nonBarreGroups.values()).every((stringIndexes) => {
+    if (stringIndexes.length <= 1) return true;
+    return hasAdjacentStrings(stringIndexes) && barreFingerCount + nonBarreFingerCount - stringIndexes.length + 1 <= 4;
+  });
+}
+
+export function parseTuningPitch(pitch: string): { note: string; octave: number } {
+  const match = pitch.match(/^([A-G]#?)(-?\d+)$/);
+  if (!match) return { note: pitch, octave: 3 };
+  return { note: match[1], octave: Number(match[2]) };
+}
+
+export function getTuningNoteNames(tuningPitches = STANDARD_TUNING_PITCHES): string[] {
+  return tuningPitches.map((pitch) => parseTuningPitch(pitch).note);
+}
+
+export function getNoteAtFret(stringIndex: number, fret: number, tuningPitches = STANDARD_TUNING_PITCHES): string {
+  const openPitch = tuningPitches[stringIndex] ?? STANDARD_TUNING_PITCHES[stringIndex];
+  return transposeNote(parseTuningPitch(openPitch).note, fret);
+}
+
+export function getVoicingNotes(voicing: GuitarVoicing, tuningPitches = STANDARD_TUNING_PITCHES): string[] {
+  return voicing.frets.map((fret, index) => (fret < 0 ? "x" : getNoteAtFret(index, fret, tuningPitches)));
+}
+
+export function voicingToPlayableNotes(voicing: GuitarVoicing, tuningPitches = STANDARD_TUNING_PITCHES): string[] {
   return voicing.frets
     .map((fret, index) => {
       if (fret < 0 || voicing.muted[index]) return null;
-      return transposePitch(STANDARD_TUNING_PITCHES[index], fret);
+      return transposePitch(tuningPitches[index] ?? STANDARD_TUNING_PITCHES[index], fret);
     })
     .filter((note): note is string => Boolean(note));
 }
 
-export function generateGuitarVoicing(parsedChord: ParsedChord): GuitarVoicing {
+export function generateGuitarVoicing(parsedChord: ParsedChord, tuningPitches = STANDARD_TUNING_PITCHES): GuitarVoicing {
   const shapeName = getDisplayChordName(parsedChord);
-  const saved = loadSavedVoicing(shapeName);
+  const standardTuning = isStandardTuning(tuningPitches);
+  const saved = loadSavedVoicing(shapeName, tuningPitches);
   if (saved) return saved;
 
   const builtIn = BUILT_IN_CHORD_SHAPES[shapeName];
-  if (builtIn) {
+  if (builtIn && standardTuning) {
     return voicingFromFrets(builtIn.frets, builtIn.baseFret, builtIn.fingers);
   }
 
-  return generateApproximateVoicing(parsedChord.notes);
+  return generateApproximateVoicing(parsedChord.notes, tuningPitches);
 }
 
-export function generateGuitarVoicings(parsedChord: ParsedChord, limit = 12): GuitarVoicing[] {
+export function generateGuitarVoicings(parsedChord: ParsedChord, limit = 12, tuningPitches = STANDARD_TUNING_PITCHES): GuitarVoicing[] {
   const shapeName = getDisplayChordName(parsedChord);
   const voicings: GuitarVoicing[] = [];
-  const saved = loadSavedVoicing(shapeName);
+  const standardTuning = isStandardTuning(tuningPitches);
+  const saved = loadSavedVoicing(shapeName, tuningPitches);
   const builtIn = BUILT_IN_CHORD_SHAPES[shapeName];
 
   if (saved) voicings.push(saved);
-  if (builtIn) voicings.push(voicingFromFrets(builtIn.frets, builtIn.baseFret, builtIn.fingers));
+  if (builtIn && standardTuning) voicings.push(voicingFromFrets(builtIn.frets, builtIn.baseFret, builtIn.fingers));
 
-  const generated = generatePositionVoicings(parsedChord.notes, limit + 8);
+  const generated = generatePositionVoicings(parsedChord.notes, limit + 8, tuningPitches);
   voicings.push(...generated);
 
   const unique = new Map<string, GuitarVoicing>();
@@ -63,12 +182,13 @@ export function generateGuitarVoicings(parsedChord: ParsedChord, limit = 12): Gu
   });
 
   const result = Array.from(unique.values()).slice(0, limit);
-  return result.length > 0 ? result : [generateApproximateVoicing(parsedChord.notes)];
+  return result.length > 0 ? result : [generateApproximateVoicing(parsedChord.notes, tuningPitches)];
 }
 
-export function generateApproximateVoicing(notes: string[]): GuitarVoicing {
+export function generateApproximateVoicing(notes: string[], tuningPitches = STANDARD_TUNING_PITCHES): GuitarVoicing {
   const chordToneIndexes = new Set(notes.map(getNoteIndex));
-  const frets = STANDARD_TUNING.map((openNote) => {
+  const tuningNotes = getTuningNoteNames(tuningPitches);
+  const frets = tuningNotes.map((openNote) => {
     const openIndex = getNoteIndex(openNote);
     let best = -1;
     for (let fret = 0; fret <= 4; fret += 1) {
@@ -81,7 +201,7 @@ export function generateApproximateVoicing(notes: string[]): GuitarVoicing {
   });
 
   const soundingNotes = frets
-    .map((fret, index) => (fret >= 0 ? getNoteAtFret(index, fret) : null))
+    .map((fret, index) => (fret >= 0 ? getNoteAtFret(index, fret, tuningPitches) : null))
     .filter((note): note is string => Boolean(note));
   const missingRoot = soundingNotes.every((note) => normalizeNoteName(note) !== normalizeNoteName(notes[0]));
 
@@ -90,7 +210,7 @@ export function generateApproximateVoicing(notes: string[]): GuitarVoicing {
     const rootIndex = getNoteIndex(root);
     let bestString = -1;
     let bestFret = 99;
-    STANDARD_TUNING.forEach((openNote, index) => {
+    tuningNotes.forEach((openNote, index) => {
       const openIndex = getNoteIndex(openNote);
       for (let fret = 0; fret <= 5; fret += 1) {
         if ((openIndex + fret) % 12 === rootIndex && fret < bestFret) {
@@ -105,13 +225,14 @@ export function generateApproximateVoicing(notes: string[]): GuitarVoicing {
   return voicingFromFrets(frets, 1, frets.map((fret) => (fret <= 0 ? 0 : Math.min(fret, 4))));
 }
 
-function generatePositionVoicings(notes: string[], limit: number): GuitarVoicing[] {
+function generatePositionVoicings(notes: string[], limit: number, tuningPitches = STANDARD_TUNING_PITCHES): GuitarVoicing[] {
   const chordToneIndexes = new Set(notes.map(getNoteIndex));
   const root = normalizeNoteName(notes[0]);
   const candidates: Array<{ voicing: GuitarVoicing; score: number }> = [];
+  const tuningNotes = getTuningNoteNames(tuningPitches);
 
   for (let baseFret = 1; baseFret <= 12; baseFret += 1) {
-    const choices = STANDARD_TUNING.map((openNote) => {
+    const choices = tuningNotes.map((openNote) => {
       const openIndex = getNoteIndex(openNote);
       const stringChoices = [-1];
 
@@ -129,10 +250,13 @@ function generatePositionVoicings(notes: string[], limit: number): GuitarVoicing
     });
 
     combineChoices(choices, (frets) => {
-      const score = scoreVoicing(frets, notes, root);
+      const score = scoreVoicing(frets, notes, root, tuningPitches);
       if (score === null) return;
+      const canonicalBaseFret = getCanonicalBaseFret(frets, baseFret);
+      const voicing = normalizeVoicingFingering(voicingFromFrets(frets, canonicalBaseFret, estimateFingers(frets, canonicalBaseFret)));
+      if (!isErgonomicVoicing(voicing)) return;
       candidates.push({
-        voicing: voicingFromFrets(frets, baseFret, estimateFingers(frets, baseFret)),
+        voicing,
         score,
       });
     });
@@ -170,9 +294,9 @@ function combineChoices(choices: number[][], onResult: (frets: number[]) => void
   });
 }
 
-function scoreVoicing(frets: number[], notes: string[], root: string): number | null {
+function scoreVoicing(frets: number[], notes: string[], root: string, tuningPitches = STANDARD_TUNING_PITCHES): number | null {
   const sounded = frets
-    .map((fret, stringIndex) => ({ fret, note: fret >= 0 ? getNoteAtFret(stringIndex, fret) : null, stringIndex }))
+    .map((fret, stringIndex) => ({ fret, note: fret >= 0 ? getNoteAtFret(stringIndex, fret, tuningPitches) : null, stringIndex }))
     .filter((item): item is { fret: number; note: string; stringIndex: number } => item.note !== null);
 
   if (sounded.length < 3) return null;
@@ -214,6 +338,34 @@ function estimateFingers(frets: number[], baseFret: number): number[] {
   });
 }
 
+function getCanonicalBaseFret(frets: number[], fallbackBaseFret: number): number {
+  if (frets.some((fret) => fret === 0)) return 1;
+  const positiveFrets = frets.filter((fret) => fret > 0);
+  if (positiveFrets.length === 0) return fallbackBaseFret;
+  return Math.min(...positiveFrets);
+}
+
+function findLikelyBarreFret(frets: number[]): number | null {
+  const frettedGroups = new Map<number, number[]>();
+  frets.forEach((fret, stringIndex) => {
+    if (fret <= 0) return;
+    const current = frettedGroups.get(fret) ?? [];
+    current.push(stringIndex);
+    frettedGroups.set(fret, current);
+  });
+
+  const candidates = Array.from(frettedGroups.entries())
+    .filter(([, stringIndexes]) => stringIndexes.length >= 2 && hasAdjacentStrings(stringIndexes))
+    .sort(([a], [b]) => a - b);
+
+  return candidates[0]?.[0] ?? null;
+}
+
+function hasAdjacentStrings(stringIndexes: number[]): boolean {
+  const sorted = [...stringIndexes].sort((a, b) => a - b);
+  return sorted.some((stringIndex, index) => index > 0 && stringIndex - sorted[index - 1] === 1);
+}
+
 export function getVoicingKey(voicing: GuitarVoicing): string {
   return `${voicing.baseFret}:${voicing.frets.join(",")}`;
 }
@@ -222,8 +374,8 @@ export function getVoicingShapeCode(voicing: GuitarVoicing): string {
   return voicing.frets.map((fret) => (fret < 0 ? "x" : String(fret))).join("");
 }
 
-export function fretsToTabLines(voicing: GuitarVoicing): string[] {
-  const stringLabels = ["e", "B", "G", "D", "A", "E"];
+export function fretsToTabLines(voicing: GuitarVoicing, tuningPitches = STANDARD_TUNING_PITCHES): string[] {
+  const stringLabels = getTuningNoteNames(tuningPitches).reverse();
   const highToLowFrets = [...voicing.frets].reverse();
 
   return stringLabels.map((label, index) => {
@@ -233,13 +385,15 @@ export function fretsToTabLines(voicing: GuitarVoicing): string[] {
   });
 }
 
-export function saveVoicing(chordName: string, voicing: GuitarVoicing): void {
-  localStorage.setItem(`chordflow:${chordName}`, JSON.stringify(voicing));
+export function saveVoicing(chordName: string, voicing: GuitarVoicing, tuningPitches = STANDARD_TUNING_PITCHES): void {
+  localStorage.setItem(getSavedVoicingStorageKey(chordName, tuningPitches), JSON.stringify(voicing));
 }
 
-export function loadSavedVoicing(chordName: string): GuitarVoicing | null {
+export function loadSavedVoicing(chordName: string, tuningPitches = STANDARD_TUNING_PITCHES): GuitarVoicing | null {
   try {
-    const raw = localStorage.getItem(`chordflow:${chordName}`);
+    const raw = getMigratedStorageItem(localStorage, getSavedVoicingStorageKey(chordName, tuningPitches), [
+      getLegacySavedVoicingStorageKey(chordName, tuningPitches),
+    ]);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as GuitarVoicing;
     if (!Array.isArray(parsed.frets) || parsed.frets.length !== 6) return null;
@@ -254,8 +408,9 @@ export function loadSavedVoicing(chordName: string): GuitarVoicing | null {
   }
 }
 
-export function clearSavedVoicing(chordName: string): void {
-  localStorage.removeItem(`chordflow:${chordName}`);
+export function clearSavedVoicing(chordName: string, tuningPitches = STANDARD_TUNING_PITCHES): void {
+  localStorage.removeItem(getSavedVoicingStorageKey(chordName, tuningPitches));
+  localStorage.removeItem(getLegacySavedVoicingStorageKey(chordName, tuningPitches));
 }
 
 function transposePitch(pitch: string, semitones: number): string {
@@ -268,4 +423,18 @@ function transposePitch(pitch: string, semitones: number): string {
   const normalizedMidi = ((midi % 12) + 12) % 12;
   const outputOctave = Math.floor(midi / 12) - 1;
   return `${transposeNote("C", normalizedMidi)}${outputOctave}`;
+}
+
+function isStandardTuning(tuningPitches: string[]): boolean {
+  return tuningPitches.join("|") === STANDARD_TUNING_PITCHES.join("|");
+}
+
+function getSavedVoicingStorageKey(chordName: string, tuningPitches: string[]): string {
+  if (isStandardTuning(tuningPitches)) return `mochord:guitar-voicing:${chordName}`;
+  return `mochord:guitar-voicing:${chordName}:${tuningPitches.join("-")}`;
+}
+
+function getLegacySavedVoicingStorageKey(chordName: string, tuningPitches: string[]): string {
+  if (isStandardTuning(tuningPitches)) return `chordflow:${chordName}`;
+  return `chordflow:${chordName}:${tuningPitches.join("-")}`;
 }

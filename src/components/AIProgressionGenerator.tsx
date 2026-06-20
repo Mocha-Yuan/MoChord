@@ -1,6 +1,7 @@
-import { Copy, KeyRound, Loader2, Music2, Play, Save, Sparkles, Square, Trash2, WandSparkles } from "lucide-react";
+import { Copy, Dumbbell, KeyRound, Loader2, Music2, Play, Save, Settings2, Sparkles, Square, Trash2, WandSparkles } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useI18n } from "../i18n";
+import { STYLE_TEMPLATES } from "../data/styleTemplates";
+import { type Language, useI18n } from "../i18n";
 import {
   clearDeepSeekApiKey,
   type DeepSeekApiKeyStatus,
@@ -16,9 +17,12 @@ import type {
   AIChordProgressionResult,
   AIProgressionChord,
   AIProgressionVersion,
+  PracticeCoachPlan,
   ProgressionLevel,
 } from "../types/progression";
 import { generateGuitarVoicing } from "../utils/guitar";
+import { localizeProgressionResult } from "../utils/diatonicChords";
+import { getHarmonicFunction } from "../utils/harmonicFunction";
 import { parseChordName } from "../utils/musicTheory";
 import {
   playChordByName,
@@ -34,8 +38,11 @@ type AIProgressionGeneratorProps = {
   countInBars: number;
   metronomeDuringPlayback: boolean;
   accentFirstBeat: boolean;
+  tuningPitches: string[];
   onBeat: (data: ProgressionPlaybackBeat) => void;
   onSelectChord: (chordName: string) => void;
+  onStartPractice?: (payload: { title: string; chords: string[]; level: ProgressionLevel; coach?: PracticeCoachPlan }) => void;
+  onSaveProgression?: (payload: { title: string; chords: string[]; level: ProgressionLevel }) => void;
 };
 
 type Source = "deepseek" | "fallback";
@@ -47,14 +54,24 @@ type PlayingState = {
   bar: number;
 };
 
-const EXAMPLES = [
-  "D调4566",
-  "C大调 1564",
-  "G Major I-V-vi-IV",
-  "A小调 6415",
-  "D / IV-V-VI-VI",
-  "E Dorian 1-4-5-1",
-];
+const EXAMPLES_BY_LANGUAGE: Record<Language, string[]> = {
+  en: [
+    "D Major 4-5-6-6",
+    "C Major 1-5-6-4",
+    "G Major I-V-vi-IV",
+    "A minor 6-4-1-5",
+    "D / IV-V-VI-VI",
+    "E Dorian 1-4-5-1",
+  ],
+  zh: [
+    "D调 4-5-6-6",
+    "C大调 1-5-6-4",
+    "G大调 I-V-vi-IV",
+    "A小调 6-4-1-5",
+    "D调 / IV-V-VI-VI",
+    "C调 1-4-5-1",
+  ],
+};
 
 export function AIProgressionGenerator({
   bpm,
@@ -62,15 +79,18 @@ export function AIProgressionGenerator({
   countInBars,
   metronomeDuringPlayback,
   accentFirstBeat,
+  tuningPitches,
   onBeat,
   onSelectChord,
+  onStartPractice,
+  onSaveProgression,
 }: AIProgressionGeneratorProps) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const [input, setInput] = useState("D调4566");
   const [result, setResult] = useState<AIChordProgressionResult | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(hasDeepSeekRuntime() ? null : t("missingKey"));
+  const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState<PlayingState | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -80,13 +100,19 @@ export function AIProgressionGenerator({
   });
   const [apiKeyNotice, setApiKeyNotice] = useState<string | null>(null);
   const [isApiKeyBusy, setIsApiKeyBusy] = useState(false);
+  const [showApiSettings, setShowApiSettings] = useState(false);
 
   const isDesktopRuntime = hasDeepSeekRuntime();
   const keyMissing = !isDesktopRuntime || !apiKeyStatus.configured;
+  const examples = EXAMPLES_BY_LANGUAGE[language];
+  const localizedResult = useMemo(
+    () => (result ? localizeProgressionResult(result, language) : null),
+    [language, result],
+  );
   const summary = useMemo(() => {
-    if (!result) return null;
-    return `Key: ${result.key} · Mode: ${result.mode} · Degrees: ${result.degrees.join("-")}`;
-  }, [result]);
+    if (!localizedResult) return null;
+    return `${t("key")}: ${localizedResult.key} · ${t("mode")}: ${localizedResult.modeLabel ?? localizedResult.mode} · ${t("degree")}: ${localizedResult.degrees.join("-")}`;
+  }, [localizedResult, t]);
 
   useEffect(() => {
     let ignore = false;
@@ -98,9 +124,9 @@ export function AIProgressionGenerator({
         const status = await getDeepSeekApiKeyStatus();
         if (ignore) return;
         setApiKeyStatus(status);
-        setError(status.configured ? null : t("missingKey"));
+        setError(null);
       } catch {
-        if (!ignore) setError(t("missingKey"));
+        if (!ignore) setError(null);
       }
     }
 
@@ -113,6 +139,10 @@ export function AIProgressionGenerator({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (keyMissing) {
+      handleLocalFallback(input);
+      return;
+    }
     await handleGenerateWithDeepSeek();
   }
 
@@ -123,7 +153,7 @@ export function AIProgressionGenerator({
     }
 
     if (keyMissing) {
-      setError(t("missingKey"));
+      handleLocalFallback(input);
       return;
     }
 
@@ -133,7 +163,7 @@ export function AIProgressionGenerator({
     stopPlayback();
 
     try {
-      const nextResult = await generateChordProgressionWithDeepSeek(input);
+      const nextResult = await generateChordProgressionWithDeepSeek(input, language);
       setResult(nextResult);
       setSource("deepseek");
     } catch (caught) {
@@ -153,7 +183,7 @@ export function AIProgressionGenerator({
 
   async function handleSaveApiKey() {
     if (!apiKeyInput.trim()) {
-      setApiKeyNotice("Please enter a DeepSeek API key first.");
+      setApiKeyNotice(t("deepseekKeyEnterFirst"));
       return;
     }
 
@@ -164,9 +194,9 @@ export function AIProgressionGenerator({
       setApiKeyStatus(status);
       setApiKeyInput("");
       setError(null);
-      setApiKeyNotice("DeepSeek API key saved on this computer.");
+      setApiKeyNotice(t("deepseekKeySaved"));
     } catch {
-      setApiKeyNotice("Could not save the API key.");
+      setApiKeyNotice(t("deepseekKeySaveFailed"));
     } finally {
       setIsApiKeyBusy(false);
     }
@@ -178,9 +208,9 @@ export function AIProgressionGenerator({
     try {
       const status = await testDeepSeekApiKey(apiKeyInput.trim() || undefined);
       setApiKeyStatus(status);
-      setApiKeyNotice("DeepSeek API key test succeeded.");
+      setApiKeyNotice(t("deepseekKeyTestSucceeded"));
     } catch {
-      setApiKeyNotice("DeepSeek API key test failed. Please check the key and network.");
+      setApiKeyNotice(t("deepseekKeyTestFailed"));
     } finally {
       setIsApiKeyBusy(false);
     }
@@ -193,10 +223,10 @@ export function AIProgressionGenerator({
       const status = await clearDeepSeekApiKey();
       setApiKeyStatus(status);
       setApiKeyInput("");
-      setError(status.configured ? null : t("missingKey"));
-      setApiKeyNotice("Saved DeepSeek API key cleared.");
+      setError(null);
+      setApiKeyNotice(t("deepseekKeyCleared"));
     } catch {
-      setApiKeyNotice("Could not clear the API key.");
+      setApiKeyNotice(t("deepseekKeyClearFailed"));
     } finally {
       setIsApiKeyBusy(false);
     }
@@ -205,11 +235,11 @@ export function AIProgressionGenerator({
   function handleLocalFallback(nextInput = input) {
     try {
       stopPlayback();
-      const fallback = generateLocalFallbackProgression(nextInput, keyMissing ? t("missingKey") : undefined);
+      const fallback = generateLocalFallbackProgression(nextInput);
       setInput(nextInput);
       setResult(fallback);
       setSource("fallback");
-      setError(keyMissing ? t("missingKey") : null);
+      setError(null);
       setPlaybackError(null);
     } catch (caught) {
       setResult(null);
@@ -234,6 +264,7 @@ export function AIProgressionGenerator({
         countInBars,
         metronomeDuringPlayback,
         accentFirstBeat,
+        tuningPitches,
         level,
         onBeat: (data) => {
           onBeat(data);
@@ -255,7 +286,7 @@ export function AIProgressionGenerator({
     try {
       setPlaybackError(null);
       stopPlayback();
-      await playChordByName(chordName, { bpm, timeSignature, bars: 1 });
+      await playChordByName(chordName, { bpm, timeSignature, bars: 1, tuningPitches });
     } catch {
       setPlaybackError(t("playbackFailedEnableAudio"));
     }
@@ -274,7 +305,7 @@ export function AIProgressionGenerator({
     if (isLoading) return t("generating");
     if (source === "deepseek") return t("generatedByDeepSeek");
     if (source === "fallback") return t("generatedFallback");
-    return keyMissing ? t("deepseekMissingShort") : t("ready");
+    return keyMissing ? t("demoModeReady") : t("ready");
   }
 
   return (
@@ -291,44 +322,70 @@ export function AIProgressionGenerator({
         </span>
       </div>
 
-      <div className="api-key-card">
+      <section className="style-template-panel" aria-label={t("styleTemplates")}>
+        <div className="style-template-heading">
+          <div>
+            <p className="eyebrow">{t("styleTemplates")}</p>
+            <h3>{t("styleTemplatesTitle")}</h3>
+          </div>
+          <span>{t("styleTemplatesHint")}</span>
+        </div>
+        <div className="style-template-grid">
+          {STYLE_TEMPLATES.map((template) => (
+            <button key={template.id} type="button" onClick={() => setInput(template.prompt)}>
+              <strong>{template.title}</strong>
+              <span>{template.subtitle}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="api-key-card api-key-card-compact">
         <div className="api-key-copy">
           <span className={`api-key-badge ${apiKeyStatus.configured ? "configured" : "missing"}`}>
             <KeyRound size={15} aria-hidden="true" />
             {apiKeyStatus.configured
-              ? `API key configured: ${apiKeyStatus.maskedKey ?? ""}`
-              : "API key not configured"}
+              ? `${t("deepseekKeyConfigured")}: ${apiKeyStatus.maskedKey ?? ""}`
+              : t("demoModeReady")}
           </span>
-          <p>Use your own DeepSeek API key. It is saved on this computer and sent by the desktop app, not bundled into the frontend.</p>
-        </div>
-        <div className="api-key-actions">
-          <input
-            value={apiKeyInput}
-            onChange={(event) => setApiKeyInput(event.target.value)}
-            placeholder="Paste your DeepSeek API key"
-            type="password"
-            autoComplete="off"
-            disabled={!isDesktopRuntime || isApiKeyBusy}
-          />
-          <button type="button" className="secondary-button" onClick={handleSaveApiKey} disabled={!isDesktopRuntime || isApiKeyBusy}>
-            <Save size={16} aria-hidden="true" />
-            Save Key
-          </button>
-          <button
-            type="button"
-            className="audio-button"
-            onClick={handleTestApiKey}
-            disabled={!isDesktopRuntime || isApiKeyBusy || (!apiKeyInput.trim() && !apiKeyStatus.configured)}
-          >
-            {isApiKeyBusy ? <Loader2 size={16} aria-hidden="true" className="spin" /> : <WandSparkles size={16} aria-hidden="true" />}
-            Test Key
-          </button>
-          <button type="button" className="audio-button" onClick={handleClearApiKey} disabled={!isDesktopRuntime || isApiKeyBusy || apiKeyStatus.source !== "saved"}>
-            <Trash2 size={16} aria-hidden="true" />
-            Clear Key
+          <p>{apiKeyStatus.configured ? t("deepseekKeyHelp") : t("demoModeHelp")}</p>
+          <button type="button" className="audio-button api-settings-toggle" onClick={() => setShowApiSettings((value) => !value)}>
+            <Settings2 size={16} aria-hidden="true" />
+            {t("aiSettings")}
           </button>
         </div>
-        {apiKeyNotice ? <p className="api-key-notice">{apiKeyNotice}</p> : null}
+        {showApiSettings ? (
+          <>
+            <div className="api-key-actions">
+              <input
+                value={apiKeyInput}
+                onChange={(event) => setApiKeyInput(event.target.value)}
+                placeholder={t("deepseekKeyPlaceholder")}
+                type="password"
+                autoComplete="off"
+                disabled={!isDesktopRuntime || isApiKeyBusy}
+              />
+              <button type="button" className="secondary-button" onClick={handleSaveApiKey} disabled={!isDesktopRuntime || isApiKeyBusy}>
+                <Save size={16} aria-hidden="true" />
+                {t("deepseekKeySave")}
+              </button>
+              <button
+                type="button"
+                className="audio-button"
+                onClick={handleTestApiKey}
+                disabled={!isDesktopRuntime || isApiKeyBusy || (!apiKeyInput.trim() && !apiKeyStatus.configured)}
+              >
+                {isApiKeyBusy ? <Loader2 size={16} aria-hidden="true" className="spin" /> : <WandSparkles size={16} aria-hidden="true" />}
+                {t("deepseekKeyTest")}
+              </button>
+              <button type="button" className="audio-button" onClick={handleClearApiKey} disabled={!isDesktopRuntime || isApiKeyBusy || apiKeyStatus.source !== "saved"}>
+                <Trash2 size={16} aria-hidden="true" />
+                {t("deepseekKeyClear")}
+              </button>
+            </div>
+            {apiKeyNotice ? <p className="api-key-notice">{apiKeyNotice}</p> : null}
+          </>
+        ) : null}
       </div>
 
       <form className="ai-progression-form" onSubmit={handleSubmit}>
@@ -345,9 +402,9 @@ export function AIProgressionGenerator({
             autoComplete="off"
           />
         </div>
-        <button className="primary-button" type="submit" disabled={isLoading || keyMissing}>
+        <button className="primary-button" type="submit" disabled={isLoading}>
           {isLoading ? <Loader2 size={18} aria-hidden="true" className="spin" /> : <Sparkles size={18} aria-hidden="true" />}
-          {t("generateWithDeepSeek")}
+          {t("generateStyleProgression")}
         </button>
         <button className="secondary-button" type="button" onClick={() => handleLocalFallback()} disabled={isLoading}>
           {t("useLocalFallback")}
@@ -355,7 +412,7 @@ export function AIProgressionGenerator({
       </form>
 
       <div className="example-row ai-example-row" aria-label={t("progressionExamples")}>
-        {EXAMPLES.map((example) => (
+        {examples.map((example) => (
           <button key={example} type="button" onClick={() => handleLocalFallback(example)}>
             {example}
           </button>
@@ -365,17 +422,74 @@ export function AIProgressionGenerator({
       {error ? <p className="error-message">{error}</p> : null}
       {playbackError ? <p className="error-message">{playbackError}</p> : null}
 
-      {result ? (
+      {localizedResult ? (
         <div className="ai-result">
           <div className="ai-summary">
             <strong>{summary}</strong>
-            <span>{result.normalizedInput}</span>
+            <span>{localizedResult.normalizedInput}</span>
           </div>
+
+          {localizedResult.coach ? (
+            <section className="coach-plan-card">
+              <div className="coach-plan-heading">
+                <div>
+                  <p className="eyebrow">{t("aiPracticeCoach")}</p>
+                  <h3>{localizedResult.coach.style}</h3>
+                  <p>{localizedResult.coach.demoNarrative}</p>
+                </div>
+                <span className="playing-pill">
+                  BPM {localizedResult.coach.startingBpm} / {localizedResult.coach.loopCount} {t("practiceLoop")}
+                </span>
+              </div>
+
+              <div className="coach-plan-grid">
+                <div>
+                  <span>{t("coachRhythm")}</span>
+                  <strong>{localizedResult.coach.rhythmPattern}</strong>
+                </div>
+                <div>
+                  <span>{t("coachTempoRamp")}</span>
+                  <strong>
+                    {localizedResult.coach.startingBpm} BPM +{localizedResult.coach.bpmIncreasePerLoop} BPM
+                  </strong>
+                </div>
+                <div>
+                  <span>{t("barsPerChord")}</span>
+                  <strong>{localizedResult.coach.barsPerChord}</strong>
+                </div>
+              </div>
+
+              <ol className="coach-goals">
+                {localizedResult.coach.goals.map((goal) => (
+                  <li key={goal}>{goal}</li>
+                ))}
+              </ol>
+
+              {onStartPractice ? (
+                <button
+                  type="button"
+                  className="primary-button coach-start-button"
+                  onClick={() =>
+                    onStartPractice({
+                      title: `${t("aiPracticeCoach")}: ${localizedResult.beginner.chords.map((chord) => chord.chord).join(" - ")}`,
+                      chords: localizedResult.beginner.chords.map((chord) => chord.chord),
+                      level: "beginner",
+                      coach: localizedResult.coach,
+                    })
+                  }
+                >
+                  <Dumbbell size={18} aria-hidden="true" />
+                  {t("startCoachPractice")}
+                </button>
+              ) : null}
+            </section>
+          ) : null}
 
           <div className="progression-version-grid">
             <ProgressionVersionCard
               level="beginner"
-              version={result.beginner}
+              version={localizedResult.beginner}
+              coach={localizedResult.coach}
               playing={playing}
               bpm={bpm}
               timeSignature={timeSignature}
@@ -384,11 +498,15 @@ export function AIProgressionGenerator({
               onCopy={handleCopy}
               onPlayChord={handlePlayChord}
               onSelectChord={onSelectChord}
-              labels={{ play: t("playBeginner"), stop: t("stop"), copy: t("copyChords"), functionLabel: t("functionLabel"), harmonicColor: t("harmonicColor"), useThisChord: t("useThisChord"), playSingle: t("play"), diagramUnavailable: t("diagramUnavailable") }}
+              onStartPractice={onStartPractice}
+              onSaveProgression={onSaveProgression}
+              tuningPitches={tuningPitches}
+              labels={{ play: t("playBeginner"), stop: t("stop"), copy: t("copyChords"), practice: t("practiceThisProgression"), save: t("saveToLibrary"), functionLabel: t("functionLabel"), harmonicColor: t("harmonicColor"), useThisChord: t("useThisChord"), playSingle: t("play"), diagramUnavailable: t("diagramUnavailable") }}
             />
             <ProgressionVersionCard
               level="professional"
-              version={result.professional}
+              version={localizedResult.professional}
+              coach={localizedResult.coach}
               playing={playing}
               bpm={bpm}
               timeSignature={timeSignature}
@@ -397,13 +515,16 @@ export function AIProgressionGenerator({
               onCopy={handleCopy}
               onPlayChord={handlePlayChord}
               onSelectChord={onSelectChord}
-              labels={{ play: t("playProfessional"), stop: t("stop"), copy: t("copyChords"), functionLabel: t("functionLabel"), harmonicColor: t("harmonicColor"), useThisChord: t("useThisChord"), playSingle: t("play"), diagramUnavailable: t("diagramUnavailable") }}
+              onStartPractice={onStartPractice}
+              onSaveProgression={onSaveProgression}
+              tuningPitches={tuningPitches}
+              labels={{ play: t("playProfessional"), stop: t("stop"), copy: t("copyChords"), practice: t("practiceThisProgression"), save: t("saveToLibrary"), functionLabel: t("functionLabel"), harmonicColor: t("harmonicColor"), useThisChord: t("useThisChord"), playSingle: t("play"), diagramUnavailable: t("diagramUnavailable") }}
             />
           </div>
 
-          {[...result.notes, ...result.warnings].length > 0 ? (
+          {[...localizedResult.notes, ...localizedResult.warnings].length > 0 ? (
             <div className="ai-notes">
-              {[...result.notes, ...result.warnings].map((note) => (
+              {[...localizedResult.notes, ...localizedResult.warnings].map((note) => (
                 <span key={note}>{note}</span>
               ))}
             </div>
@@ -417,6 +538,7 @@ export function AIProgressionGenerator({
 type VersionCardProps = {
   level: ProgressionLevel;
   version: AIProgressionVersion;
+  coach?: PracticeCoachPlan;
   playing: PlayingState | null;
   bpm: number;
   timeSignature: TimeSignature;
@@ -425,10 +547,15 @@ type VersionCardProps = {
   onCopy: (chords: AIProgressionChord[]) => void;
   onPlayChord: (chordName: string) => void;
   onSelectChord: (chordName: string) => void;
+  onStartPractice?: (payload: { title: string; chords: string[]; level: ProgressionLevel; coach?: PracticeCoachPlan }) => void;
+  onSaveProgression?: (payload: { title: string; chords: string[]; level: ProgressionLevel }) => void;
+  tuningPitches: string[];
   labels: {
     play: string;
     stop: string;
     copy: string;
+    practice: string;
+    save: string;
     functionLabel: string;
     harmonicColor: string;
     useThisChord: string;
@@ -440,6 +567,7 @@ type VersionCardProps = {
 function ProgressionVersionCard({
   level,
   version,
+  coach,
   playing,
   bpm,
   timeSignature,
@@ -448,6 +576,9 @@ function ProgressionVersionCard({
   onCopy,
   onPlayChord,
   onSelectChord,
+  onStartPractice,
+  onSaveProgression,
+  tuningPitches,
   labels,
 }: VersionCardProps) {
   const { t } = useI18n();
@@ -483,6 +614,39 @@ function ProgressionVersionCard({
           <Copy size={16} aria-hidden="true" />
           {labels.copy}
         </button>
+        {onStartPractice ? (
+          <button
+            type="button"
+            className="audio-button"
+            onClick={() =>
+              onStartPractice({
+                title: `${version.label}: ${chordLine}`,
+                chords: version.chords.map((chord) => chord.chord),
+                level,
+                coach,
+              })
+            }
+          >
+            <Dumbbell size={16} aria-hidden="true" />
+            {labels.practice}
+          </button>
+        ) : null}
+        {onSaveProgression ? (
+          <button
+            type="button"
+            className="audio-button"
+            onClick={() =>
+              onSaveProgression({
+                title: `${version.label}: ${chordLine}`,
+                chords: version.chords.map((chord) => chord.chord),
+                level,
+              })
+            }
+          >
+            <Save size={16} aria-hidden="true" />
+            {labels.save}
+          </button>
+        ) : null}
       </div>
 
       <div className="progression-chord-grid">
@@ -493,6 +657,7 @@ function ProgressionVersionCard({
             isActive={isPlaying && playing?.chordName === chord.chord}
             onPlayChord={onPlayChord}
             onSelectChord={onSelectChord}
+            tuningPitches={tuningPitches}
             labels={labels}
           />
         ))}
@@ -506,16 +671,19 @@ type ChordCardProps = {
   isActive: boolean;
   onPlayChord: (chordName: string) => void;
   onSelectChord: (chordName: string) => void;
+  tuningPitches: string[];
   labels: VersionCardProps["labels"];
 };
 
-function ProgressionChordCard({ chord, isActive, onPlayChord, onSelectChord, labels }: ChordCardProps) {
+function ProgressionChordCard({ chord, isActive, onPlayChord, onSelectChord, tuningPitches, labels }: ChordCardProps) {
+  const { language } = useI18n();
+  const harmonicFunction = getHarmonicFunction(chord.degree, language);
   const diagram = useMemo(() => {
     try {
       const parsed = parseChordName(chord.chord);
       return {
         chordName: chord.chord,
-        voicing: generateGuitarVoicing(parsed),
+        voicing: generateGuitarVoicing(parsed, tuningPitches),
         error: null,
       };
     } catch {
@@ -525,7 +693,7 @@ function ProgressionChordCard({ chord, isActive, onPlayChord, onSelectChord, lab
         error: labels.diagramUnavailable,
       };
     }
-  }, [chord.chord, labels.diagramUnavailable]);
+  }, [chord.chord, labels.diagramUnavailable, tuningPitches]);
 
   return (
     <article className={`progression-chord-card${isActive ? " active" : ""}`}>
@@ -535,12 +703,16 @@ function ProgressionChordCard({ chord, isActive, onPlayChord, onSelectChord, lab
         <p>
           <strong>{labels.functionLabel}</strong> {chord.function || labels.harmonicColor}
         </p>
+        <p className="harmonic-explainer">
+          <span>{harmonicFunction.label}</span>
+          {harmonicFunction.detail}
+        </p>
         <p>{chord.explanation}</p>
       </div>
 
       {diagram.voicing ? (
         <div className="progression-diagram">
-          <FretboardDiagram chordName={diagram.chordName} voicing={diagram.voicing} />
+          <FretboardDiagram chordName={diagram.chordName} voicing={diagram.voicing} tuningPitches={tuningPitches} />
         </div>
       ) : (
         <p className="diagram-error">{diagram.error}</p>

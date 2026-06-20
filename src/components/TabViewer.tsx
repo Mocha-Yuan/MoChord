@@ -4,11 +4,12 @@ import { fretsToTabLines } from "../utils/guitar";
 
 type TabViewerProps = {
   voicing: GuitarVoicing;
+  tuningPitches?: string[];
 };
 
-export function TabViewer({ voicing }: TabViewerProps) {
+export function TabViewer({ voicing, tuningPitches }: TabViewerProps) {
   const { t } = useI18n();
-  const lines = fretsToTabLines(voicing);
+  const lines = fretsToTabLines(voicing, tuningPitches);
 
   return (
     <section className="panel tab-panel">

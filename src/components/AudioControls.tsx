@@ -13,9 +13,10 @@ type AudioControlsProps = {
   voicing: GuitarVoicing | null;
   bpm: number;
   timeSignature: TimeSignature;
+  tuningPitches?: string[];
 };
 
-export function AudioControls({ parsedChord, voicing, bpm, timeSignature }: AudioControlsProps) {
+export function AudioControls({ parsedChord, voicing, bpm, timeSignature, tuningPitches }: AudioControlsProps) {
   const { t } = useI18n();
   const [status, setStatus] = useState<AudioStatus>("locked");
   const [preset, setPreset] = useState<SynthPreset>("warm");
@@ -76,7 +77,7 @@ export function AudioControls({ parsedChord, voicing, bpm, timeSignature }: Audi
       return null;
     }
 
-    const voicingNotes = voicing ? voicingToPlayableNotes(voicing) : [];
+    const voicingNotes = voicing ? voicingToPlayableNotes(voicing, tuningPitches) : [];
     const notes =
       voicingNotes.length > 0 ? voicingNotes : toPlayableChordNotes(parsedChord.notes, parsedChord.root);
 
@@ -129,7 +130,7 @@ export function AudioControls({ parsedChord, voicing, bpm, timeSignature }: Audi
       </div>
 
       {!parsedChord ? <p className="audio-empty">{t("noChordSelected")}</p> : null}
-      <p className="audio-empty">
+      <p className="audio-empty audio-follow-meta">
         {t("audioFollows")} {bpm} BPM · {timeSignature.numerator}/{timeSignature.denominator}
       </p>
 
