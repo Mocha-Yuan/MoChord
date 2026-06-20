@@ -10,7 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
-class MainActivity : WryActivity() {
+class MainActivity : TauriActivity() {
   private var pendingAudioRequest: PermissionRequest? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
