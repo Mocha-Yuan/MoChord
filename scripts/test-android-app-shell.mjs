@@ -48,7 +48,7 @@ assert.match(androidGradleSource, /keyAlias =/);
 assert.match(androidGradleSource, /keyPassword =/);
 assert.match(androidGradleSource, /signingConfig = signingConfigs\.getByName\("release"\)/);
 assert.match(mainActivitySource, /package com\.chordflow\.client/);
-assert.match(mainActivitySource, /class MainActivity : WryActivity\(\)/);
+assert.match(mainActivitySource, /class MainActivity : TauriActivity\(\)/);
 assert.doesNotMatch(tauriConfigSource, /com\.chordflow\.app/);
 assert.doesNotMatch(androidGradleSource, /com\.chordflow\.app/);
 
