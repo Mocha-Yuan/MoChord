@@ -1,5 +1,20 @@
 # MoChord （魔弦）
 
+<div align="center">
+  <img src="mochord-readme-header.png" alt="MoChord" width="666" />
+  <p><strong>把灵感变成能听、能练、能续的音乐工作台。</strong></p>
+  <p>
+    <a href="#一句话亮点">功能亮点</a> ·
+    <a href="#快速开始">快速开始</a> ·
+    <a href="#技术栈">技术栈</a> ·
+    <a href="#mochord-english-version">English</a>
+  </p>
+</div>
+
+<p align="center">
+  <img src="mochord-product-interaction.jpeg" alt="MoChord product interaction showcase" width="100%" />
+</p>
+
 Scroll down – the English instructions are below.
 
 把和弦灵感、吉他把位、实时调音、节拍练习和 AI 编曲放进同一个工作台。
