@@ -488,6 +488,14 @@ Tuning targets are recalculated from the selected A4 reference, making the same 
 
 ## Quick Start
 
+### Run the web app with PicoRunner
+
+[![Launch on PicoRunner](https://picorunner.com/badges/launch.svg)](https://picorunner.com/launch/?repository=https%3A%2F%2Fgithub.com%2FMocha-Yuan%2FMoChord)
+
+[PicoRunner](https://picorunner.com/) opens installation review for this repository on macOS. The included manifest uses Node 24, installs locked npm dependencies, builds the web app, and serves it on `127.0.0.1` with Vite preview. It runs the browser app; the Tauri desktop app and its DeepSeek integration are separate.
+
+Guest chord tools require no account or API key. Chords, saved shapes and history live in browser storage, so keep the same browser profile and local address to retain them. Optional Supabase configuration follows the environment setup below and must be present when building; `.env` and `.env.local` are preserved by the manifest. No cloud service or credentials are provisioned by this launch path.
+
 Install dependencies:
 
 ```bash

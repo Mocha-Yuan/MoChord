@@ -1,0 +1,29 @@
+schema = 1
+name = "MoChord"
+
+[runtime]
+kind = "node"
+version = "24"
+package_manager = "npm"
+
+[[setup.steps]]
+kind = "dependencies"
+locked = true
+
+[[setup.steps]]
+run = ["npm", "run", "build"]
+
+[launch]
+command = ["npm", "run", "preview", "--", "--host", "{host}", "--port", "{port}", "--strictPort"]
+host = "127.0.0.1"
+port = 4326
+
+[health]
+type = "http"
+path = "/"
+timeout_seconds = 90
+
+[persistence]
+# Guest chords, saved shapes and history use browser localStorage, outside the checkout.
+# Preserve optional local configuration; Vite embeds its public values at build time.
+paths = [".env", ".env.local"]
